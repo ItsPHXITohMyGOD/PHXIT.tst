@@ -505,4 +505,343 @@ local function CreateSliderBtn(parent, text, yOffset, propName, minVal, maxVal, 
     Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(0, 5)
     sliderBg.ZIndex = 4 -- Fica atrás do handle
 
-    local sliderHandle = Instance.new("TextButton", frame) -- Usamos TextButton pa
+    local sliderHandle = Instance.new("TextButton", frame) -- Usamos TextButton para InputBegan/Ended
+    sliderHandle.Size = UDim2.new(0, 20, 0, 20) -- Tamanho do handle
+    sliderHandle.Position = UDim2.new(0, 5, 0, 25) -- Posição inicial
+    sliderHandle.BackgroundColor3 = Color3.fromRGB(0, 180, 0) -- Cor do handle
+    sliderHandle.BorderSizePixel = 0
+    Instance.new("UICorner", sliderHandle).CornerRadius = UDim.new(0, 5)
+    sliderHandle.ZIndex = 5
+
+    local draggingSlider = false
+
+    -- Função para atualizar a posição do slider e o valor
+    local function UpdateSlider(mouseX)
+        local sliderBgAbsPos = sliderBg.AbsolutePosition.X
+        local sliderBgAbsSize = sliderBg.AbsoluteSize.X
+        local handleSize = sliderHandle.AbsoluteSize.X
+
+        -- Calcula a posição X do mouse relativa ao sliderBg
+        local relativeMouseX = mouseX - sliderBgAbsPos - handleSize / 2
+        relativeMouseX = math.clamp(relativeMouseX, 0, sliderBgAbsSize - handleSize)
+
+        -- Calcula a porcentagem e o novo valor
+        local percentage = relativeMouseX / (sliderBgAbsSize - handleSize)
+        local newValue = math.floor(minVal + (maxVal - minVal) * percentage / step + 0.5) * step
+        Config[propName] = math.clamp(newValue, minVal, maxVal)
+
+        -- Atualiza a posição visual do handle e os labels
+        sliderHandle.Position = UDim2.new(0, relativeMouseX, 0, 25)
+        label.Text = text .. ": " .. string.format("%.2f", Config[propName])
+        valueLabel.Text = tostring(Config[propName])
+        if callback then callback(Config[propName]) end
+    end
+
+    sliderHandle.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
+            draggingSlider = true
+            UpdateSlider(input.Position.X)
+            randomDelay(0.02, 0.08, true) -- Delay ao iniciar drag do slider
+        end
+    end)
+
+    sliderHandle.InputEnded:Connect(function()
+        if draggingSlider then
+            draggingSlider = false
+            randomDelay(0.05, 0.15, true) -- Delay ao terminar drag do slider
+        end
+    end)
+
+UserInputService.InputChanged:Connect(function(input)
+        if draggingSlider and (input.UserInputType == Enum.MouseMovement or input.UserInputType == Enum.Touch) then
+            UpdateSlider(input.Position.X)
+        end
+    end)
+
+    -- Define a posição inicial do slider com base no valor configurado
+    local initialPercentage = math.clamp((Config[propName] - minVal) / (maxVal - minVal), 0, 1)
+    sliderHandle.Position = UDim2.new(initialPercentage, 0, 0, 25)
+
+    table.insert(GUI_ELEMENTS, {Y = yOffset + 55 + 10, Frame = frame}) -- Adiciona Y e o frame para cálculo de posição
+    return frame, label, valueLabel, sliderHandle
+end
+
+-- Criação dos Elementos da GUI Principal
+local currentYOffset = 60 -- Posição inicial Y
+
+-- Toggles
+local AimbotBtn = CreateToggleBtn(Main, "AIMBOT", currentYOffset, "Aimbot")
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+local AimLockBtn = CreateToggleBtn(Main, "AIMLOCK", currentYOffset, "AimLock")
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+local ESPBtn = CreateToggleBtn(Main, "ESP", currentYOffset, "ESP", function(state)
+    if not state then
+        -- Desliga o ESP e remove todos os highlights quando desativado
+        for plr, _ in pairs(ESPHighlights) do
+            RemoveESP(plr)
+        end
+    end
+end)
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+local PredictionBtn = CreateToggleBtn(Main, "PREDICTION", currentYOffset, "Prediction")
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+local RCSBtn = CreateToggleBtn(Main, "RCS", currentYOffset, "RCS")
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+local TeamCheckBtn = CreateToggleBtn(Main, "TEAM CHECK", currentYOffset, "TeamCheck")
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+
+-- Sliders
+local FOVSlider, FOVLabel, _, _ = CreateSliderBtn(Main, "FOV", currentYOffset, "FOV", 20, 180, 5)
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+local SmoothSlider, SmoothLabel, _, _ = CreateSliderBtn(Main, "SMOOTHNESS", currentYOffset, "Smoothness", 0.01, 0.5, 0.01)
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+local PredictionSlider, PredictionLabel, _, _ = CreateSliderBtn(Main, "PREDICT FACTOR", currentYOffset, "PredictionFactor", 0.1, 1, 0.1)
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+local RCSSlider, RCSLabel, _, _ = CreateSliderBtn(Main, "RCS STRENGTH", currentYOffset, "RCSStrength", 0, 1, 0.1)
+currentYOffset = GUI_ELEMENTS[#GUI_ELEMENTS].Y
+
+-- Botão para mostrar/esconder GUI
+Hide.MouseButton1Click:Connect(function()
+    randomDelay(0.1, 0.3, true)
+    Main.Visible = false
+    Mini.Visible = true
+end)
+
+-- ===============================
+-- FOV CIRCLE VISUAL (Usando Drawing)
+-- ===============================
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Visible = false
+FOVCircle.Color = Color3.fromRGB(255,255,255)
+FOVCircle.Transparency = 0.3
+FOVCircle.Thickness = 1.5
+FOVCircle.NumSides = 100 -- Mais lados para um círculo mais suave
+FOVCircle.Filled = false
+
+-- ===============================
+-- LOOP PRINCIPAL (RenderStepped Otimizado com Delays e Controle de Estado)
+-- ===============================
+local lastAimDirection = Vector3.new(0,0,0) -- Para RCS
+local lastTargetAimPos = nil -- Posição que o aimbot tentou mirar no frame anterior
+
+RunService.RenderStepped:Connect(function(deltaTime)
+    -- Verifica se o script está liberado e o jogador/personagem está válido
+    if not ScriptLiberado or not lpCharacter or not lpHumanoid or lpHumanoid.Health <= 0 then
+        isAiming = false
+        LockedTarget = nil
+        FOVCircle.Visible = false
+        return
+    end
+
+    -- Delay aleatório no início para discrição
+    randomDelay(0.001, 0.005, true)
+
+    -- Atualiza o ESP para todos os jogadores válidos
+    if Cheats.ESP then
+        for _, plr in ipairs(Players:GetPlayers()) do
+            if IsValidTarget(plr) then
+                ApplyESP(plr)
+            else
+                RemoveESP(plr) -- Remove ESP de alvos inválidos
+            end
+        end
+    else
+        -- Se o ESP for desativado, remove todos os highlights
+        for plr, _ in pairs(ESPHighlights) do
+            RemoveESP(plr)
+        end
+    end
+
+    -- Atualiza o círculo do FOV
+    FOVCircle.Visible = (Cheats.Aimbot or Cheats.AimLock) and Camera
+    if FOVCircle.Visible then
+        FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
+        FOVCircle.Radius = Config.FOV
+    end
+
+    -- Lógica de controle do Aimbot e AimLock
+    local bestTarget = nil
+    local aimKeyPressed = UserInputService:IsKeyDown(Config.AimKey) or UserInputService:IsGamepadButtonDown(Config.AimKey)
+
+    if aimKeyPressed then
+        -- Se AimLock está ativo, tenta manter o alvo travado
+        if Cheats.AimLock then
+            if LockedTarget and IsValidTarget(LockedTarget.Player) then
+                -- Reavalia se o alvo travado ainda é o melhor dentro do FOV
+                local currentTargetScreenDist = (LockedTarget.ScreenPosition - Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)).Magnitude
+                if currentTargetScreenDist > Config.FOV then
+                    LockedTarget = nil -- Alvo saiu do FOV, busca novo
+                else
+                    bestTarget = LockedTarget -- Mantém o alvo travado
+                end
+            end
+            -- Se não há alvo travado ou ele se tornou inválido, busca um novo
+            if not bestTarget then
+                bestTarget = FindBestTarget()
+                if bestTarget then
+                    LockedTarget = bestTarget -- Trava no novo alvo
+                end
+            end
+-- Se Aimbot está ativo (e AimLock não), busca o melhor alvo a cada frame
+        elseif Cheats.Aimbot then
+            bestTarget = FindBestTarget()
+        end
+    else
+        -- Se a tecla de mira não está pressionada, reseta o alvo travado
+        LockedTarget = nil
+        isAiming = false
+    end
+
+    -- Aplica a mira se um alvo válido foi encontrado e a tecla está pressionada
+    if bestTarget and aimKeyPressed then
+        isAiming = true
+        local targetPos = bestTarget.PredictedPosition or bestTarget.Head.Position -- Usa posição prevista se disponível
+        local characterAimOrigin = lpCharacter.Head.Position -- Ponto de origem da mira
+
+        -- Calcula o vetor de mira
+        local aimVector = (targetPos - characterAimOrigin).Unit
+        local currentCameraCFrame = Camera.CFrame
+        local lookVector = currentCameraCFrame.LookVector
+
+        -- Calcula a diferença angular (em graus)
+        local angleDifference = math.deg(math.acos(math.clamp(lookVector:Dot(aimVector), -1, 1)))
+
+        -- Verifica se o alvo está dentro do FOV e tem linha de visão
+        if angleDifference < Config.FOV and HasLineOfSight(currentCameraCFrame, targetPos, {lpCharacter}) then
+
+            -- Interpolação suave (Aim Smoothing)
+            local targetCFrame = CFrame.lookAt(characterAimOrigin, targetPos)
+            local interpFactor = Config.Smoothness
+            local newLookVector = lookVector:Lerp(targetCFrame.LookVector, interpFactor)
+            local newCFrame = CFrame.new(characterAimOrigin, characterAimOrigin + newLookVector)
+
+            -- Aplica o RCS (Recoil Control System)
+            if Cheats.RCS then
+                local currentAimDir = newCFrame.LookVector
+                local aimDelta = targetPos - (characterAimOrigin + currentAimDir * 1000) -- Vetor da mira atual para o alvo
+                local rcsOffset = aimDelta * Config.RCSStrength -- Força base do RCS
+
+                -- Adiciona um pequeno movimento aleatório ao RCS para discrição
+                local randomRCS = Vector3.new(math.random(-1,1), math.random(-1,1), math.random(-1,1)) * 0.05
+                rcsOffset = rcsOffset + randomRCS:Clamp(1) -- Limita o offset aleatório
+
+                -- Aplica o movimento do RCS de forma suave
+                local rcsMove = rcsOffset * Config.Smoothness * 10 -- Escala o movimento do RCS pela suavidade
+                local finalLookVector = (currentAimDir - rcsMove).Unit -- Subtrai o movimento do RCS
+
+newCFrame = CFrame.new(characterAimOrigin, characterAimOrigin + finalLookVector)
+            end
+
+            -- Aplica a nova CFrame da câmera
+            Camera.CFrame = newCFrame
+            lastAimDirection = newCFrame.LookVector -- Salva para RCS no próximo frame
+            lastTargetAimPos = targetPos -- Salva para referência
+        else
+            isAiming = false -- Alvo fora do FOV ou sem linha de visão
+        end
+    else
+        -- Se a mira não está ativa, reseta variáveis
+        isAiming = false
+        LockedTarget = nil
+        lastAimDirection = Vector3.new(0,0,0)
+        lastTargetAimPos = nil
+    end
+
+    -- Atualiza os dados de predição de alvo para todos os jogadores
+    for _, plr in ipairs(Players:GetPlayers()) do
+        if plr.Character and plr.Character.Head then
+            local data = TargetPredictionData[plr.Character]
+            if not data then
+                data = { LastPos = plr.Character.Head.Position, LastTime = tick(), Velocity = Vector3.new() }
+                TargetPredictionData[plr.Character] = data
+            end
+            local currentTime = tick()
+            local deltaTimePred = currentTime - data.LastTime
+            if deltaTimePred > 0.1 then
+                data.Velocity = (plr.Character.Head.Position - data.LastPos) / deltaTimePred
+                data.LastPos = plr.Character.Head.Position
+                data.LastTime = currentTime
+            end
+        end
+    end
+
+end)
+
+- ===============================
+-- LÓGICA DE INICIALIZAÇÃO E CONTROLE
+-- ===============================
+
+-- Função para verificar a chave e liberar o script
+local function CheckKey()
+    local keyInput = Box.Text
+    if keyInput == VALID_KEY then
+        ScriptLiberado = true
+        KeyFrame:Destroy() -- Destroi a GUI de chave
+        Main.Visible = true -- Mostra a GUI principal
+        Mini.Visible = false -- Garante que o Mini PH está escondido
+        -- Adiciona um pequeno delay antes de habilitar o loop principal
+        randomDelay(0.5, 1.0, true)
+        print("PHXIT v3.1 - Script liberado com sucesso!")
+    else
+        Box.PlaceholderText = "Key Incorreta!"
+        Box.Text = "" -- Limpa a caixa
+        Box.BackgroundColor3 = Color3.fromRGB(200, 0, 0)
+        randomDelay(2, 3, true)
+        Box.BackgroundColor3 = Color3.fromRGB(35, 35, 35) -- Volta à cor normal
+        Box.PlaceholderText = "Cole sua Key aqui"
+    end
+end
+
+Confirm.MouseButton1Click:Connect(CheckKey)
+
+-- Permite pressionar Enter para confirmar a chave
+Box.FocusLost:Connect(function(enterPressed)
+    if enterPressed then
+        CheckKey()
+    end
+end)
+
+-- ===============================
+-- LIMPEZA AO FECHAR O JOGO OU MORRER
+-- ===============================
+lp.CharacterRemoving:Connect(function()
+    -- Reseta variáveis de estado
+    LockedTarget = nil
+    isAiming = false
+    -- Remove todos os highlights de ESP quando o personagem é removido
+    for _, highlight in pairs(ESPHighlights) do
+        highlight:Destroy()
+    end
+    ESPHighlights = {}
+    TargetPredictionData = {}
+
+    -- Oculta a GUI principal e mostra o Mini PH
+    if Main and Main.Parent then
+        Main.Visible = false
+    end
+    if Mini and Mini.Parent then
+        Mini.Visible = true
+    end
+end)
+
+-- Conexão para garantir que o Mini PH apareça se o jogador renascer
+lp.CharacterAdded:Connect(function(character)
+    lpCharacter = character
+    lpHumanoid = character:WaitForChild("Humanoid")
+    -- Adiciona um pequeno delay para garantir que tudo carregou
+    task.wait(0.5)
+    if Mini and Mini.Parent then
+        Mini.Visible = true
+    end
+end)
+
+-- Garante que a GUI principal seja destruída se o script for descarregado de outra forma
+ScreenGui.Destroying:Connect(function()
+    if FOVCircle then FOVCircle:Destroy() end
+    for _, highlight in pairs(ESPHighlights) do
+        highlight:Destroy()
+    end
+    -- Limpa quaisquer outros objetos criados pelo script
+end)
+
+print("PHXIT v3.1 - Loader inicializado. Aguardando chave...")
