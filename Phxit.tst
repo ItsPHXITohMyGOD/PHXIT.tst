@@ -11,6 +11,8 @@ local HttpService = game:GetService("HttpService")
 local Debris = game:GetService("Debris")
 local lp = Players.LocalPlayer
 local Camera = workspace.CurrentCamera
+local lpCharacter = lp:WaitForChild("Character")
+local lpHumanoid = lpCharacter:WaitForChild("Humanoid")
 
 -- ===============================
 -- CONFIGURAÇÕES GERAIS E ANTI-BAN (Simulado)
@@ -19,17 +21,21 @@ local VALID_KEY = "PH.DS25567" -- Mantenha a sua chave
 local ScriptLiberado = false
 local DISCORD_LINK = "https://discord.gg/xE3xxzAcH3" -- Mantenha o link do seu Discord
 
--- Funções de ofuscação (básicas, mais para estética)
+-- Funções de ofuscação (básicas, mais para estética e evitar detecção simples)
 local function _G(data) return HttpService:JSONEncode(data) end
 local function _D(data) return HttpService:JSONDecode(data) end
 
--- Simulação de delay humano
-local function randomDelay(min, max)
+-- Simulação de delay humano mais robusta e integrada
+local function randomDelay(min, max, useTaskWait)
     local delayTime = math.random() * (max - min) + min
-    task.wait(delayTime)
+    if useTaskWait then
+        task.wait(delayTime)
+    else
+        wait(delayTime)
+    end
 end
 
--- Variação de espera para tarefas
+-- Variação de espera para tarefas, com base em um tempo base
 local function randomizeWait(baseWait)
     local variation = baseWait * math.random(80, 120) / 100
     task.wait(variation)
@@ -41,52 +47,61 @@ end
 local ScreenGui = Instance.new("ScreenGui")
 ScreenGui.Name = "PHXIT_GUI"
 ScreenGui.ResetOnSpawn = false
-ScreenGui.DisplayOrder = 1000
+ScreenGui.DisplayOrder = 1000 -- Garante que fique no topo
 ScreenGui.Parent = lp:WaitForChild("PlayerGui")
 
 -- ===============================
--- FUNÇÕES DE UTILIDADE DA GUI
+-- FUNÇÕES DE UTILIDADE DA GUI (Otimizadas)
 -- ===============================
 local function RGBStroke(ui, thickness)
     thickness = thickness or 1.5
     local stroke = Instance.new("UIStroke", ui)
     stroke.Thickness = thickness
-    stroke.Color = Color3.fromRGB(255,255,255)
+    stroke.Color = Color3.fromRGB(255,255,255) -- Cor inicial
+    stroke.LineJoinMode = Enum.LineJoinMode.Round -- Mais suave
+
+    -- Conexão para destruir o stroke quando o pai for destruído
     ui:GetPropertyChangedSignal("Parent"):Connect(function()
         if not ui.Parent then stroke:Destroy() end
     end)
 
+    -- Efeito RGB dinâmico
+    local hue = 0
     task.spawn(function()
-        local h = 0
         while ui.Parent and stroke.Parent do
-            h = (h + 0.02) % 1
-            stroke.Color = Color3.fromHSV(h, 0.9, 1)
-            task.wait(0.03)
+            hue = (hue + 0.02) % 1 -- Garante que hue fique entre 0 e 1
+            stroke.Color = Color3.fromHSV(hue, 0.9, 1)
+            randomDelay(0.02, 0.05, true) -- Delay curto para suavidade
         end
     end)
     return stroke
 end
 
 local function MakeDraggable(frame, parentFrame)
-    local dragging, dragStart, startPos
+    local dragging = false
+    local dragStart = Vector2.new()
+    local startPos = Vector2.new()
     local frameRect = Rect.new(0, 0, frame.AbsoluteSize.X, frame.AbsoluteSize.Y)
     local parentRect = parentFrame and Rect.new(0,0,parentFrame.AbsoluteSize.X, parentFrame.AbsoluteSize.Y) or Rect.new(0,0,Camera.ViewportSize.X, Camera.ViewportSize.Y)
+    local zIndexBase = frame.ZIndex -- Guarda o ZIndex original
 
     frame.InputBegan:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
             dragging = true
             dragStart = input.Position
             startPos = frame.AbsolutePosition
-            frame.ZIndex = 100
-            randomDelay(0.05, 0.15) -- Pequeno delay ao iniciar drag
+            frame.ZIndex = 100 -- Traz para frente ao arrastar
+            randomDelay(0.05, 0.15, true) -- Pequeno delay ao iniciar drag
         end
     end)
 
     frame.InputEnded:Connect(function(input)
         if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            dragging = false
-            frame.ZIndex = 1
-            randomDelay(0.05, 0.15) -- Pequeno delay ao terminar drag
+            if dragging then -- Somente se estava arrastando
+                dragging = false
+                frame.ZIndex = zIndexBase -- Volta ao ZIndex original
+                randomDelay(0.05, 0.15, true) -- Pequeno delay ao terminar drag
+            end
         end
     end)
 
@@ -94,15 +109,18 @@ local function MakeDraggable(frame, parentFrame)
         if dragging and (input.UserInputType == Enum.MouseMovement or input.UserInputType == Enum.Touch) then
             local delta = input.Position - dragStart
             local newAbsolutePos = startPos + delta
-            local clampedAbsolutePos = Vector2.new(math.clamp(newAbsolutePos.X, 0, parentRect.Width - frameRect.Width),
-                                                   math.clamp(newAbsolutePos.Y, 0, parentRect.Height - frameRect.Height))
+            -- Garante que o frame fique dentro dos limites do pai
+            local clampedAbsolutePos = Vector2.new(
+                math.clamp(newAbsolutePos.X, 0, parentRect.Width - frameRect.Width),
+                math.clamp(newAbsolutePos.Y, 0, parentRect.Height - frameRect.Height)
+            )
             frame.AbsolutePosition = clampedAbsolutePos
         end
     end)
 end
 
 -- ===============================
--- KEY GUI
+-- KEY GUI (Otimizada)
 -- ===============================
 local KeyFrame = Instance.new("Frame", ScreenGui)
 KeyFrame.Size = UDim2.fromOffset(350, 250)
@@ -133,6 +151,7 @@ Box.TextSize = 14
 Instance.new("UICorner", Box).CornerRadius = UDim.new(0, 10)
 Box.TextStrokeTransparency = 1
 Box.ZIndex = 5
+Box.ClearTextOnFocus = false -- Não limpar o texto ao focar
 
 local Confirm = Instance.new("TextButton", KeyFrame)
 Confirm.Size = UDim2.fromOffset(280, 40)
@@ -160,20 +179,20 @@ DiscordBtn.MouseButton1Click:Connect(function()
     if setclipboard then
         setclipboard(DISCORD_LINK)
         DiscordBtn.Text = "COPIADO ✅"
-        randomDelay(1, 1.5)
+        randomDelay(1, 1.5, true)
         DiscordBtn.Text = "DISCORD"
     else
         DiscordBtn.Text = "ERRO"
-        randomDelay(1, 1.5)
+        randomDelay(1, 1.5, true)
         DiscordBtn.Text = "DISCORD"
     end
 end)
 
 -- ===============================
--- GUI PRINCIPAL
+-- GUI PRINCIPAL (Refatorada e Expandida)
 -- ===============================
 local Main = Instance.new("Frame", ScreenGui)
-Main.Size = UDim2.fromOffset(320, 480) -- Aumentado para mais opções e sliders
+Main.Size = UDim2.fromOffset(350, 550) -- Tamanho maior para mais opções
 Main.Position = UDim2.fromScale(0.05, 0.35)
 Main.BackgroundColor3 = Color3.fromRGB(25, 25, 25)
 Main.Visible = false
@@ -193,7 +212,7 @@ MainTitle.BackgroundTransparency = 1
 
 local Hide = Instance.new("TextButton", Main)
 Hide.Size = UDim2.fromOffset(30, 30)
-Hide.Position = UDim2.fromOffset(285, 5)
+Hide.Position = UDim2.fromOffset(315, 5) -- Posição ajustada
 Hide.Text = "-"
 Hide.Font = Enum.Font.GothamBold
 Hide.TextSize = 18
@@ -204,7 +223,7 @@ Hide.ZIndex = 5
 
 local Close = Instance.new("TextButton", Main)
 Close.Size = UDim2.fromOffset(30, 30)
-Close.Position = UDim2.fromOffset(250, 5)
+Close.Position = UDim2.fromOffset(280, 5) -- Posição ajustada
 Close.Text = "X"
 Close.Font = Enum.Font.GothamBold
 Close.TextSize = 16
@@ -214,12 +233,13 @@ Instance.new("UICorner", Close).CornerRadius = UDim.new(0, 8)
 Close.ZIndex = 5
 
 Close.MouseButton1Click:Connect(function()
-    randomDelay(0.1, 0.3) -- Delay ao fechar
+    randomDelay(0.1, 0.3, true) -- Delay ao fechar
     ScreenGui:Destroy()
+    -- Adicionar qualquer cleanup necessário aqui
 end)
 
 -- ===============================
--- MINI PH
+-- MINI PH (Para minimizar GUI)
 -- ===============================
 local Mini = Instance.new("Frame", ScreenGui)
 Mini.Size = UDim2.fromOffset(60, 60)
@@ -240,103 +260,141 @@ PH.Font = Enum.Font.GothamBold
 PH.TextSize = 25
 PH.ZIndex = 5
 
+PH.MouseButton1Click:Connect(function()
+    randomDelay(0.1, 0.3, true)
+    Main.Visible = true
+    Mini.Visible = false
+end)
+
 -- ===============================
--- CHEAT ESTADOS E CONFIGURAÇÕES
+-- CHEAT ESTADOS E CONFIGURAÇÕES (Estrutura mais organizada)
 -- ===============================
 local Cheats = {
     Aimbot = false,
     AimLock = false,
     ESP = false,
     Prediction = false,
-    RCS = false
+    RCS = false,
+    TeamCheck = true, -- Novo: Habilitar/Desabilitar Teamcheck
 }
 local Config = {
     FOV = 100,
-    Smoothness = 0.08, -- Valor padrão mais rápido
+    Smoothness = 0.08,
     ESPColor = Color3.fromRGB(255, 0, 0),
     ESPTransparency = 0.4,
     ESPOutlineColor = Color3.fromRGB(255, 255, 255),
     ESPOutlineTransparency = 0,
     RCSStrength = 0.5,
-    PredictionFactor = 0.2
+    PredictionFactor = 0.2, -- Fator de interpolação para predição
+    AimKey = Enum.KeyCode.ButtonR1, -- Gamepad Right Bumper (pode ser mudado)
+    ESPDrawMode = "Box", -- "Box", "Outline"
 }
-local LockedTarget = nil
-local ESPs = {}
-local lastTargetPos = {}
-local lastTargetTime = {}
-local lastCameraCFrame = Camera.CFrame -- Para calcular movimento da câmera
+
+-- Variáveis de estado do cheat
+local LockedTarget = nil -- Armazena o alvo travado pelo AimLock
+local ESPHighlights = {} -- Armazena instâncias de Highlight para ESP
+local TargetPredictionData = {} -- Armazena dados para cálculo de predição de alvo
+local lastCameraCFrame = Camera.CFrame -- Para cálculo de movimento da câmera
+local isAiming = false -- Indica se o aimbot está ativo no frame atual
 
 -- ===============================
--- FUNÇÕES DE UTILIDADE DO CHEAT
+-- FUNÇÕES DE UTILIDADE DO CHEAT (Otimizadas)
 -- ===============================
 
-local function IsValidTarget(plr)
-    if not plr or not plr.Character or not plr.Character:FindFirstChildOfClass("Humanoid") then return false end
-    local hum = plr.Character.Humanoid
-    if hum.Health <= 0 then return false end
-    if plr.Character:FindFirstChildOfClass("ForceField") then return false end
-    if lp.Team and plr.Team and lp.Team == plr.Team then return false end
+local function IsValidTarget(targetPlayer)
+    -- Verifica se o jogador alvo é válido
+    if not targetPlayer or targetPlayer == lp then return false end
+    local targetChar = targetPlayer.Character
+    if not targetChar or not targetChar:FindFirstChildOfClass("Humanoid") then return false end
+    local targetHumanoid = targetChar.Humanoid
+    if targetHumanoid.Health <= 0 then return false end
+    -- Evita alvos com ForceField (comum em alguns jogos)
+    if targetChar:FindFirstChildOfClass("ForceField") then return false end
+    -- Team Check: Se ativado, não mira em aliados
+    if Cheats.TeamCheck and lp.Team and targetPlayer.Team and lp.Team == targetPlayer.Team then return false end
     return true
 end
 
-local function HasLineOfSight(origin, targetPos, ignoreList)
+local function HasLineOfSight(originCFrame, targetPosition, ignoreInstances)
+    -- Otimizado: Usa CFrame para origin e verifica distância máxima
     local params = RaycastParams.new()
-    params.FilterDescendantsInstances = ignoreList or {}
+    params.FilterDescendantsInstances = ignoreInstances or {}
     params.FilterType = Enum.RaycastFilterType.Blacklist
-    local direction = targetPos - origin
+    params.IgnoreWater = true -- Ignora água para raycasts
+
+    local direction = targetPosition - originCFrame.Position
     local distance = direction.Magnitude
-    if distance > 500 then return false end
-    local ray = workspace:Raycast(origin, direction, params)
-    return not ray
+
+    -- Limita a distância máxima do raycast para performance
+    if distance > 600 then return false end
+
+    local ray = workspace:Raycast(originCFrame.Position, direction, params)
+
+    -- Retorna true se não houver hit ou se o hit for o próprio alvo (indicando linha de visão clara)
+    return not ray or ray.Instance:IsDescendantOf(targetPosition.Parent) -- Assumindo que targetPosition é a posição da cabeça
 end
 
-local function GetPredictedTargetPosition(targetChar)
-    if not targetChar or not targetChar.Head then return nil end
-
+local function GetPredictedTargetPosition(targetChar, headPart)
+    -- Calcula a posição futura do alvo com base em sua velocidade e direção
     local currentTime = tick()
-    local lastPos = lastTargetPos[targetChar]
-    local lastT = lastTargetTime[targetChar]
+    local data = TargetPredictionData[targetChar]
 
-    if lastPos and lastT and currentTime - lastT < 0.5 then
-        local velocity = (targetChar.Head.Position - lastPos) / (currentTime - lastT)
-        local predictedPos = targetChar.Head.Position + velocity * Config.PredictionFactor
-        return predictedPos
-    else
-        return targetChar.Head.Position
+    if not data then
+        data = { LastPos = headPart.Position, LastTime = currentTime, Velocity = Vector3.new() }
+        TargetPredictionData[targetChar] = data
     end
+
+    local deltaTime = currentTime - data.LastTime
+    if deltaTime > 0.1 then -- Atualiza a velocidade se passou tempo suficiente
+        data.Velocity = (headPart.Position - data.LastPos) / deltaTime
+        data.LastPos = headPart.Position
+        data.LastTime = currentTime
+    end
+
+    -- Calcula a posição prevista
+    local predictedPos = headPart.Position + data.Velocity * Config.PredictionFactor
+    return predictedPos
 end
 
 local function FindBestTarget()
     local bestTarget = nil
-    local minDistSq = math.huge
+    local minDistSqToScreenCenter = math.huge
     local screenCenter = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
 
-    -- Adiciona um pequeno delay aleatório na busca de alvos
-    randomDelay(0.01, 0.05)
+    -- Adiciona um pequeno delay aleatório na busca de alvos para discrição
+    randomDelay(0.01, 0.05, true)
 
+    -- Itera sobre os jogadores de forma eficiente
     for _, plr in ipairs(Players:GetPlayers()) do
-        if IsValidTarget(plr) and plr.Character.Head then
-            local targetHeadPos = plr.Character.Head.Position
-            local screenPos, isVisible = Camera:WorldToViewportPoint(targetHeadPos)
+        if IsValidTarget(plr) then
+            local targetChar = plr.Character
+            local targetHead = targetChar and targetChar.Head
+            if targetHead then
+                local predictedPos = targetHead.Position -- Posição padrão
+                if Cheats.Prediction then
+                    predictedPos = GetPredictedTargetPosition(targetChar, targetHead) or targetHead.Position
+                end
 
-            if isVisible then
-                local distToScreenCenter = (Vector2.new(screenPos.X, screenPos.Y) - screenCenter).Magnitude
+                local success, screenPos = pcall(Camera.WorldToViewportPoint, Camera, predictedPos)
+                if success and screenPos.Z > 0 then -- Verifica se está na frente da câmera
+                    local screenVec = Vector2.new(screenPos.X, screenPos.Y)
+                    local distToScreenCenter = (screenVec - screenCenter).Magnitude
 
-                if distToScreenCenter < Config.FOV then
-                    local predictedPos = targetHeadPos
-                    if Cheats.Prediction then
-                        predictedPos = GetPredictedTargetPosition(plr.Character) or targetHeadPos
-                    end
-
-                    if HasLineOfSight(Camera.CFrame.Position, predictedPos, {lp.Character}) then
-                        local distWorldSq = (Camera.CFrame.Position - predictedPos).Magnitude^2
-                        if distWorldSq < minDistSq then
-                            minDistSq = distWorldSq
-                            bestTarget = {
-                                Player = plr,
-                                Position = predictedPos,
-                                Head = plr.Character.Head
-                            }
+                    -- Filtro de FOV
+                    if distToScreenCenter < Config.FOV then
+                        -- Verifica linha de visão com base na posição prevista
+                        if HasLineOfSight(Camera.CFrame, predictedPos, {lpCharacter}) then
+                            -- Se for o melhor alvo até agora, atualiza
+                            if distToScreenCenter < minDistSqToScreenCenter then
+                                minDistSqToScreenCenter = distToScreenCenter
+                                bestTarget = {
+                                    Player = plr,
+                                    Character = targetChar,
+                                    Head = targetHead,
+                                    PredictedPosition = predictedPos,
+                                    ScreenPosition = screenVec
+                                }
+                            end
                         end
                     end
                 end
@@ -347,43 +405,48 @@ local function FindBestTarget()
 end
 
 -- ===============================
--- ESP FUNCIONAL MELHORADO
+-- ESP FUNCIONAL MELHORADO (Usando Highlight)
 -- ===============================
-local function ApplyESP(plr)
-    if not Cheats.ESP or not plr or not plr.Character or not plr.Character:FindFirstChild("Head") then return end
-    if not IsValidTarget(plr) then RemoveESP(plr); return end
+local function ApplyESP(targetPlayer)
+    if not Cheats.ESP or not IsValidTarget(targetPlayer) then
+        RemoveESP(targetPlayer)
+        return
+    end
 
-    local highlight = ESPs[plr]
+    local highlight = ESPHighlights[targetPlayer]
     if not highlight then
         highlight = Instance.new("Highlight")
         highlight.Name = "PHXIT_ESP"
-        highlight.Adornee = plr.Character
+        highlight.Adornee = targetPlayer.Character -- Aplica o highlight ao personagem
         highlight.FillColor = Config.ESPColor
         highlight.FillTransparency = Config.ESPTransparency
         highlight.OutlineColor = Config.ESPOutlineColor
         highlight.OutlineTransparency = Config.ESPOutlineTransparency
-        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+        highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop -- Sempre visível
         highlight.Parent = workspace
-        ESPs[plr] = highlight
+        ESPHighlights[targetPlayer] = highlight
     else
-        highlight.Adornee = plr.Character
+        -- Atualiza o Adornee caso o personagem tenha sido recriado
+        highlight.Adornee = targetPlayer.Character
     end
 end
 
-function RemoveESP(plr)
-    if ESPs[plr] then
-        ESPs[plr]:Destroy()
-        ESPs[plr] = nil
+function RemoveESP(targetPlayer)
+    if ESPHighlights[targetPlayer] then
+        ESPHighlights[targetPlayer]:Destroy()
+        ESPHighlights[targetPlayer] = nil
     end
 end
 
 -- ===============================
--- BOTÕES E SLIDERS DA GUI
+-- BOTÕES E SLIDERS DA GUI (Otimizados e Refatorados)
 -- ===============================
-local function CreateToggleBtn(text, y, stateVarName, callback)
-    local btn = Instance.new("TextButton", Main)
+local GUI_ELEMENTS = {} -- Para gerenciar a posição dos elementos
+
+local function CreateToggleBtn(parent, text, yOffset, stateVarName, callback)
+    local btn = Instance.new("TextButton", parent)
     btn.Size = UDim2.fromOffset(280, 35)
-    btn.Position = UDim2.fromOffset(20, y)
+    btn.Position = UDim2.fromOffset(20, yOffset)
     btn.Font = Enum.Font.GothamBold
     btn.TextSize = 13
     btn.TextColor3 = Color3.new(1, 1, 1)
@@ -393,28 +456,32 @@ local function CreateToggleBtn(text, y, stateVarName, callback)
 
     local currentState = Cheats[stateVarName]
     btn.Text = text .. (currentState and ": ON" or ": OFF")
+    btn.BackgroundColor3 = currentState and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(180, 50, 50) -- Cor baseada no estado
 
     btn.MouseButton1Click:Connect(function()
-        randomDelay(0.1, 0.3) -- Delay ao clicar
-        Cheats[stateVarName] = not Cheats[stateVarName]
-        btn.Text = text .. (Cheats[stateVarName] and ": ON" or ": OFF")
-        if callback then callback(Cheats[stateVarName]) end
+        randomDelay(0.1, 0.3, true) -- Delay ao clicar
+        local newState = not Cheats[stateVarName]
+        Cheats[stateVarName] = newState
+        btn.Text = text .. (newState and ": ON" or ": OFF")
+        btn.BackgroundColor3 = newState and Color3.fromRGB(0, 180, 0) or Color3.fromRGB(180, 50, 50)
+        if callback then callback(newState) end
     end)
+    table.insert(GUI_ELEMENTS, {Y = yOffset + 35 + 10, Frame = btn}) -- Adiciona Y e o elemento para cálculo de posição
     return btn
 end
 
-local function CreateSliderBtn(text, y, propName, minVal, maxVal, step)
-    local frame = Instance.new("Frame", Main)
-    frame.Size = UDim2.fromOffset(280, 50) -- Aumentado para acomodar o label
-    frame.Position = UDim2.fromOffset(20, y)
+local function CreateSliderBtn(parent, text, yOffset, propName, minVal, maxVal, step, callback)
+    local frame = Instance.new("Frame", parent)
+    frame.Size = UDim2.fromOffset(280, 55) -- Aumentado para acomodar label e slider
+    frame.Position = UDim2.fromOffset(20, yOffset)
     frame.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
     Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 10)
     frame.ZIndex = 5
 
     local label = Instance.new("TextLabel", frame)
-    label.Size = UDim2.new(1, -10, 0, 20) -- Ocupa quase toda a largura, 20 de altura
+    label.Size = UDim2.new(1, -10, 0, 20)
     label.Position = UDim2.new(0, 5, 0, 5)
-    label.Text = text .. ": " .. tostring(Config[propName])
+    label.Text = text .. ": " .. string.format("%.2f", Config[propName]) -- Formata para 2 casas decimais
     label.Font = Enum.Font.Gotham
     label.TextSize = 13
     label.TextColor3 = Color3.new(1, 1, 1)
@@ -423,7 +490,7 @@ local function CreateSliderBtn(text, y, propName, minVal, maxVal, step)
 
     local valueLabel = Instance.new("TextLabel", frame)
     valueLabel.Size = UDim2.new(0, 50, 0, 20)
-    valueLabel.Position = UDim2.new(0, 225, 0, 5) -- Posição ajustada
+    valueLabel.Position = UDim2.new(0, 225, 0, 5)
     valueLabel.Text = tostring(Config[propName])
     valueLabel.Font = Enum.Font.GothamBold
     valueLabel.TextSize = 13
@@ -431,107 +498,11 @@ local function CreateSliderBtn(text, y, propName, minVal, maxVal, step)
     valueLabel.BackgroundTransparency = 1
     valueLabel.TextXAlignment = Enum.TextXAlignment.Right
 
-    local slider = Instance.new("TextButton", frame)
-    slider.Size = UDim2.new(1, -10, 0, 20) -- Ocupa a largura disponível menos margem
-    slider.Position = UDim2.new(0, 5, 0, 25) -- Abaixo do label
-    slider.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
-    Instance.new("UICorner", slider).CornerRadius = UDim.new(0, 5)
-    slider.ZIndex = 6
+    local sliderBg = Instance.new("Frame", frame) -- Fundo do slider
+    sliderBg.Size = UDim2.new(1, -10, 0, 20)
+    sliderBg.Position = UDim2.new(0, 5, 0, 25)
+    sliderBg.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    Instance.new("UICorner", sliderBg).CornerRadius = UDim.new(0, 5)
+    sliderBg.ZIndex = 4 -- Fica atrás do handle
 
-    local draggingSlider = false
-    slider.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            draggingSlider = true
-            local relativeX = input.Position.X - slider.AbsolutePosition.X
-            local percentage = math.clamp(relativeX / slider.AbsoluteSize.X, 0, 1)
-            local newValue = math.floor(minVal + (maxVal - minVal) * percentage / step + 0.5) * step
-            Config[propName] = math.clamp(newValue, minVal, maxVal)
-            label.Text = text .. ": " .. Config[propName]
-            valueLabel.Text = tostring(Config[propName])
-            randomDelay(0.02, 0.08) -- Delay ao iniciar drag do slider
-        end
-    end)
-
-    slider.InputEnded:Connect(function()
-        draggingSlider = false
-        randomDelay(0.05, 0.15) -- Delay ao terminar drag do slider
-    end)
-
-    UserInputService.InputChanged:Connect(function(input)
-        if draggingSlider and (input.UserInputType == Enum.MouseMovement or input.UserInputType == Enum.Touch) then
-            local relativeX = input.Position.X - slider.AbsolutePosition.X
-            local percentage = math.clamp(relativeX / slider.AbsoluteSize.X, 0, 1)
-            local newValue = math.floor(minVal + (maxVal - minVal) * percentage / step + 0.5) * step
-            Config[propName] = math.clamp(newValue, minVal, maxVal)
-            label.Text = text .. ": " .. Config[propName]
-            valueLabel.Text = tostring(Config[propName])
-        end
-    end)
-
-    local initialPercentage = (Config[propName] - minVal) / (maxVal - minVal)
-    slider.Size = UDim2.new(initialPercentage, 0, 0, 20)
-
-    return frame, label, valueLabel, slider
-end
-
--- Botões e Sliders
-local AimbotBtn = CreateToggleBtn("AIMBOT", 60, "Aimbot")
-local AimLockBtn = CreateToggleBtn("AIMLOCK", 110, "AimLock")
-local ESPBtn = CreateToggleBtn("ESP", 160, "ESP")
-local PredictionBtn = CreateToggleBtn("PREDICTION", 210, "Prediction")
-local RCSBtn = CreateToggleBtn("RCS", 260, "RCS")
-
-local FOVSlider, FOVLabel, _, FOVThumb = CreateSliderBtn("FOV", 310, "FOV", 20, 180, 5)
-local SmoothSlider, SmoothLabel, _, SmoothThumb = CreateSliderBtn("SMOOTHNESS", 370, "Smoothness", 0.01, 0.5, 0.01)
-local PredictionSlider, PredictionLabel, _, PredictionThumb = CreateSliderBtn("PREDICT FACTOR", 430, "PredictionFactor", 0.1, 1, 0.1)
-local RCSSlider, RCSLabel, _, RCSThumb = CreateSliderBtn("RCS STRENGTH", 490, "RCSStrength", 0, 1, 0.1)
-
--- ===============================
--- FOV CIRCLE VISUAL
--- ===============================
-local FOVCircle = Drawing.new("Circle")
-FOVCircle.Visible = false
-FOVCircle.Color = Color3.fromRGB(255,255,255)
-FOVCircle.Transparency = 0.3
-FOVCircle.Thickness = 1.5
-FOVCircle.NumSides = 100
-FOVCircle.Filled = false
-
--- ===============================
--- LOOP PRINCIPAL (RenderStepped Otimizado com Delays)
--- ===============================
-local lastTargetData = nil -- Para manter o alvo se não houver um novo
-local cameraMoveDelta = CFrame.new() -- Para cálculo de movimento da câmera
-
-RunService.RenderStepped:Connect(function(deltaTime) -- deltaTime pode ser útil para aprimorar a interpolação
-    if not ScriptLiberado then return end
-
-    -- Pequeno delay aleatório no início de cada frame RenderStepped
-    randomDelay(0.001, 0.005)
-
-    -- Atualiza ESP
-    if Cheats.ESP then
-        for _, plr in ipairs(Players:GetPlayers()) do
-            ApplyESP(plr)
-        end
-    else
-        for plr, highlight in pairs(ESPs) do
-            if not IsValidTarget(plr) then highlight:Destroy(); ESPs[plr] = nil end
-        end
-    end
-
-    -- Atualiza círculo do FOV
-    FOVCircle.Visible = Cheats.Aimbot or Cheats.AimLock
-    if FOVCircle.Visible then
-        FOVCircle.Position = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y / 2)
-        FOVCircle.Radius = Config.FOV
-    end
-
-    local targetData = nil
-    local targetHeadPos = nil
-    local currentCameraCFrame = Camera.CFrame
-
-    -- Lógica de Seleção de Alvo
-    if Cheats.AimLock then
-        -- Se o alvo travado atual não é mais válido, busca um novo
-        if not LockedTarget or not IsVali
+    local sliderHandle = Instance.new("TextButton", frame) -- Usamos TextButton pa
